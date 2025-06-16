@@ -6,20 +6,17 @@ interface HL7Json {
   [key: string]: { [key: string]: string } | undefined;
 }
 
-interface FieldMapping {
-  path?: string;
-  value?: string;
-  transform?: (val: string, data?: any) => string;
-}
-
 const CMSConverter: React.FC = () => {
   const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [hl7File, setHl7File] = useState<File | null>(null);
+  const [hl7TextInput, setHl7TextInput] = useState<string>("");
   const [hl7Content, setHl7Content] = useState<string>("");
   const [jsonContent, setJsonContent] = useState<HL7Json | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setErrorMessage] = useState<string>("");
   const jsonDataRef = useRef<any>({});
 
+  // JSON file dropzone
   const {
     getRootProps: getJsonRootProps,
     getInputProps: getJsonInputProps,
@@ -44,14 +41,42 @@ const CMSConverter: React.FC = () => {
       setJsonFile(file);
       setHl7Content("");
       setJsonContent(null);
+      setHl7File(null);
+      setHl7TextInput("");
       console.log("JSON file set:", file.name);
     },
   });
 
-  // Utility to safely get nested JSON values
-  const getNestedValue = (obj: any, path: string): string => {
-    return path.split('.').reduce((current, key) => current ? current[key] : '', obj) || '';
-  };
+  // HL7 file dropzone
+  const {
+    getRootProps: getHl7RootProps,
+    getInputProps: getHl7InputProps,
+    isDragActive: isHl7DragActive,
+    isDragReject: isHl7DragReject,
+  } = useDropzone({
+    accept: { "text/plain": [".hl7", ".txt"] },
+    maxFiles: 1,
+    onDrop: (acceptedFiles, fileRejections) => {
+      if (fileRejections.length > 0) {
+        setErrorMessage("Invalid file. Please upload a single .hl7 or .txt file.");
+        setHl7File(null);
+        return;
+      }
+      const file = acceptedFiles[0];
+      if (!file.name.endsWith(".hl7") && !file.name.endsWith(".txt")) {
+        setErrorMessage("Invalid file type. Please upload a .hl7 or .txt file.");
+        setHl7File(null);
+        return;
+      }
+      setErrorMessage("");
+      setHl7File(file);
+      setJsonFile(null);
+      setHl7Content("");
+      setJsonContent(null);
+      setHl7TextInput("");
+      console.log("HL7 file set:", file.name);
+    },
+  });
 
   // Utility to format date (YYYYMMDD or fallback to empty string)
   const formatDate = (dateStr: string): string => {
@@ -65,132 +90,92 @@ const CMSConverter: React.FC = () => {
 
   // Utility to create an HL7 segment
   const createSegment = (segmentName: string, fields: string[]): string => {
-    // Remove trailing empty fields
     while (fields.length > 1 && fields[fields.length - 1] === '') {
       fields.pop();
     }
     return [segmentName, ...fields].join('|');
   };
 
-  // HL7 segment mappings (no hardcoded values)
-  const hl7Mappings: Record<string, FieldMapping[]> = {
-    MSH: [
-      { path: 'MSH.encodingCharacters' }, // MSH-1
-      { value: '' }, // MSH-2 (already in MSH-1)
-      { path: 'MSH.sendingApplication' }, // MSH-3
-      { path: 'MSH.sendingFacility' }, // MSH-4
-      { path: 'MSH.receivingApplication' }, // MSH-5
-      { path: 'MSH.receivingFacility' }, // MSH-6
-      { path: 'MSH.dateTime', transform: formatDate }, // MSH-7
-      { value: '' }, // MSH-8
-      { path: 'MSH.messageType' }, // MSH-9
-      { path: 'MSH.controlId' }, // MSH-10
-      { path: 'MSH.processingId' }, // MSH-11
-      { path: 'MSH.versionId' }, // MSH-12
-    ],
-    PID: [
-      { path: 'PID.setId' }, 
-      { value: '' }, 
-      { path: 'PID.patientId' }, 
-      { value: '' }, 
-      { path: 'PID.patientName' }, 
-      { value: '' },
-      { path: 'PID.dob', transform: formatDate }, 
-      { path: 'PID.gender' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { path: 'PID.address' }, 
-      { value: '' }, 
-      { path: 'PID.phoneNumber' }, 
-      { value: '' }, 
-      { value: '' },
-      { value: '' }, 
-      { value: '' }, 
-      { path: 'PID.patientAccountNumber' }, 
-    ],
-    PV1: [
-      { path: 'PV1.setId' }, 
-      { path: 'PV1.patientClass' }, 
-      { value: '' },
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { path: 'PV1.attendingDoctor' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { path: 'PV1.providerPhoneNumber' }, 
-    ],
-    PR1: [
-      { path: 'PR1.setId' }, 
-      { value: '' }, 
-      { path: 'PR1.procedureCode' }, 
-      { path: 'PR1.procedureDescription' }, 
-      { path: 'PR1.procedureDate', transform: formatDate }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { value: '' }, 
-      { path: 'PR1.providerName' }, // PR1-11
-    ],
-    IN1: [
-      { path: 'IN1.setId' }, // IN1-1
-      { path: 'IN1.insurancePlan' }, // IN1-2
-      { path: 'IN1.otherInsured' }, // IN1-3
-      { path: 'IN1.insuranceId' }, // IN1-4
-      { path: 'IN1.secondaryInsurancePlan' }, // IN1-5
-      { value: '' }, // IN1-6
-      { value: '' }, // IN1-7
-      { value: '' }, // IN1-8
-      { value: '' }, // IN1-9
-      { value: '' }, // IN1-10
-      { value: '' }, // IN1-11
-      { value: '' }, // IN1-12
-      { value: '' }, // IN1-13
-      { value: '' }, // IN1-14
-      { value: '' }, // IN1-15
-      { path: 'IN1.insuredName' }, // IN1-16
-      { value: '' }, // IN1-17
-      { path: 'IN1.insuredDob', transform: formatDate }, // IN1-18
-      { path: 'IN1.insuredAddress' }, // IN1-19
-      { path: 'IN1.insuredPhoneNumber' }, // IN1-20
-    ],
-    // OBX segments will be handled dynamically below
-  };
-
+  // Dynamic JSON to HL7 conversion
   const convertToHL7 = async (file: File): Promise<string> => {
     try {
       const text = await file.text();
       jsonDataRef.current = JSON.parse(text);
-
       const segments: string[] = [];
+      jsonDataRef.current = jsonDataRef.current || {};
 
-      // Generate standard segments (MSH, PID, PV1, PR1, IN1)
-      Object.entries(hl7Mappings).forEach(([segmentName, fields]) => {
-        const segmentFields = fields.map(field => {
-          let value = field.path ? getNestedValue(jsonDataRef.current, field.path) : field.value || '';
-          if (field.transform) {
-            value = field.transform(value, jsonDataRef.current);
-          }
-          return value;
-        });
-        segments.push(createSegment(segmentName, segmentFields));
+      // Define segment types and their field mappings dynamically
+      const segmentDefinitions: { [key: string]: { field: string; index: number; transform?: (val: string) => string }[] } = {
+        MSH: [
+          { field: 'encodingCharacters', index: 1 },
+          { field: 'sendingApplication', index: 2 },
+          { field: 'sendingFacility', index: 3 },
+          { field: 'receivingApplication', index: 4 },
+          { field: 'receivingFacility', index: 5 },
+          { field: 'dateTime', index: 6, transform: formatDate },
+          { field: 'messageType', index: 8 },
+          { field: 'controlId', index: 9 },
+          { field: 'processingId', index: 10 },
+          { field: 'versionId', index: 11 },
+        ],
+        PID: [
+          { field: 'setId', index: 1 },
+          { field: 'patientId', index: 3 },
+          { field: 'patientName', index: 5 },
+          { field: 'dob', index: 7, transform: formatDate },
+          { field: 'gender', index: 8 },
+          { field: 'address', index: 11 },
+          { field: 'phoneNumber', index: 13 },
+          { field: 'patientAccountNumber', index: 18 },
+        ],
+        PV1: [
+          { field: 'setId', index: 1 },
+          { field: 'patientClass', index: 2 },
+          { field: 'attendingDoctor', index: 7 },
+          { field: 'billingProviderPhone', index: 19 }, // Map billing provider phone to PV1-19
+          { field: 'providerAddress', index: 44 }, // Map provider address to PV1-44
+        ],
+        PR1: [
+          { field: 'setId', index: 1 },
+          { field: 'procedureCode', index: 3 },
+          { field: 'procedureDescription', index: 4 },
+          { field: 'procedureDate', index: 5, transform: formatDate },
+          { field: 'providerName', index: 11 },
+        ],
+        IN1: [
+          { field: 'setId', index: 1 },
+          { field: 'insurancePlan', index: 2 },
+          { field: 'otherInsured', index: 3 },
+          { field: 'insuranceId', index: 4 },
+          { field: 'secondaryInsurancePlan', index: 5 },
+          { field: 'healthBenefitPlan', index: 6 }, // Map health benefit plan to IN1-6
+          { field: 'insuredName', index: 16 },
+          { field: 'insuredDob', index: 18, transform: formatDate },
+          { field: 'insuredAddress', index: 19 },
+          { field: 'insuredPhoneNumber', index: 20 },
+        ],
+      };
+
+      // Process each segment dynamically
+      Object.entries(segmentDefinitions).forEach(([segmentName, fields]) => {
+        const segmentData = jsonDataRef.current[segmentName];
+        if (segmentData) {
+          const segmentFields: string[] = Array(Math.max(...fields.map(f => f.index)) + 1).fill('');
+          fields.forEach(({ field, index, transform }) => {
+            let value = segmentData[field] || '';
+            if (transform) {
+              value = transform(value);
+            }
+            segmentFields[index] = value;
+          });
+          segments.push(createSegment(segmentName, segmentFields));
+        }
       });
 
-      // Handle OBX segments dynamically (OBX, OBX1, OBX3, etc.)
+      // Handle OBX segments dynamically
       Object.keys(jsonDataRef.current)
         .filter(key => key.startsWith('OBX'))
         .sort((a, b) => {
-          // Sort OBX keys (OBX, OBX1, OBX3, etc.) by setId or key
           const aId = jsonDataRef.current[a]?.setId || a;
           const bId = jsonDataRef.current[b]?.setId || b;
           return aId.localeCompare(bId);
@@ -198,17 +183,17 @@ const CMSConverter: React.FC = () => {
         .forEach(obxKey => {
           const obxData = jsonDataRef.current[obxKey];
           const segmentFields = [
-            getNestedValue(obxData, 'setId'), // OBX-1
-            getNestedValue(obxData, 'valueType'), // OBX-2
-            getNestedValue(obxData, 'observationIdentifier'), // OBX-3
-            '', // OBX-4
-            getNestedValue(obxData, 'observationValue'), // OBX-5
-            '', // OBX-6
-            '', // OBX-7
-            '', // OBX-8
-            '', // OBX-9
-            '', // OBX-10
-            getNestedValue(obxData, 'observationStatus'), // OBX-11
+            obxData.setId || '',
+            obxData.valueType || '',
+            obxData.observationIdentifier || '',
+            '',
+            obxData.observationValue || '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            obxData.observationStatus || '',
           ];
           segments.push(createSegment('OBX', segmentFields));
         });
@@ -219,89 +204,89 @@ const CMSConverter: React.FC = () => {
     }
   };
 
+  // Dynamic HL7 to JSON conversion with specific field mappings
   const convertHL7ToJson = (hl7: string): HL7Json => {
     const jsonOutput: HL7Json = {};
     const lines = hl7.split("\n").filter(line => line.trim());
 
+    // Define segment-specific field mappings for meaningful JSON keys
+    const segmentFieldMappings: { [key: string]: { [key: string]: string } } = {
+      MSH: {
+        field1: 'encodingCharacters',
+        field2: 'sendingApplication',
+        field3: 'sendingFacility',
+        field4: 'receivingApplication',
+        field5: 'receivingFacility',
+        field6: 'dateTime',
+        field8: 'messageType',
+        field9: 'controlId',
+        field10: 'processingId',
+        field11: 'versionId',
+      },
+      PID: {
+        field1: 'setId',
+        field3: 'patientId',
+        field5: 'patientName',
+        field7: 'dob',
+        field8: 'gender',
+        field11: 'address',
+        field13: 'phoneNumber',
+        field18: 'patientAccountNumber',
+      },
+      PV1: {
+        field1: 'setId',
+        field2: 'patientClass',
+        field7: 'attendingDoctor',
+        field19: 'billingProviderPhone', // Map PV1-19 to billingProviderPhone
+        field44: 'providerAddress', // Map PV1-44 to providerAddress
+      },
+      PR1: {
+        field1: 'setId',
+        field3: 'procedureCode',
+        field4: 'procedureDescription',
+        field5: 'procedureDate',
+        field11: 'providerName',
+      },
+      IN1: {
+        field1: 'setId',
+        field2: 'insurancePlan',
+        field3: 'otherInsured',
+        field4: 'insuranceId',
+        field5: 'secondaryInsurancePlan',
+        field6: 'healthBenefitPlan', // Map IN1-6 to healthBenefitPlan
+        field16: 'insuredName',
+        field18: 'insuredDob',
+        field19: 'insuredAddress',
+        field20: 'insuredPhoneNumber',
+      },
+      OBX: {
+        field1: 'setId',
+        field2: 'valueType',
+        field3: 'observationIdentifier',
+        field5: 'observationValue',
+        field11: 'observationStatus',
+      },
+    };
+
     for (const line of lines) {
       const [segmentType, ...fields] = line.split("|");
-      if (!jsonOutput[segmentType]) {
-        jsonOutput[segmentType] = {};
+      let segmentKey = segmentType;
+      let segmentData: { [key: string]: string } = {};
+
+      // Handle OBX segments with setId
+      if (segmentType === "OBX" && fields[0]) {
+        const setId = fields[0];
+        segmentKey = `OBX${setId}`;
       }
 
-      switch (segmentType) {
-        case "MSH":
-          jsonOutput[segmentType] = {
-            encodingCharacters: fields[0] || "",
-            sendingApplication: fields[1] || "",
-            sendingFacility: fields[2] || "",
-            receivingApplication: fields[3] || "",
-            receivingFacility: fields[4] || "",
-            dateTime: fields[5] || "",
-            messageType: fields[7] || "",
-            controlId: fields[8] || "",
-            processingId: fields[9] || "",
-            versionId: fields[10] || "",
-          };
-          break;
-        case "PID":
-          jsonOutput[segmentType] = {
-            setId: fields[0] || "",
-            patientId: fields[2] || "",
-            patientName: fields[4] || "",
-            dob: fields[6] || "",
-            gender: fields[7] || "",
-            address: fields[10] || "",
-            phoneNumber: fields[12] || "",
-            patientAccountNumber: fields[17] || "",
-          };
-          break;
-        case "PV1":
-          jsonOutput[segmentType] = {
-            setId: fields[0] || "",
-            patientClass: fields[1] || "",
-            attendingDoctor: fields[6] || "",
-            providerPhoneNumber: fields[18] || "",
-          };
-          break;
-        case "PR1":
-          jsonOutput[segmentType] = {
-            setId: fields[0] || "",
-            procedureCode: fields[2] || "",
-            procedureDescription: fields[3] || "",
-            procedureDate: fields[4] || "",
-            providerName: fields[10] || "",
-          };
-          break;
-        case "IN1":
-          jsonOutput[segmentType] = {
-            setId: fields[0] || "",
-            insurancePlan: fields[1] || "",
-            otherInsured: fields[2] || "",
-            insuranceId: fields[3] || "",
-            secondaryInsurancePlan: fields[4] || "",
-            insuredName: fields[15] || "",
-            insuredDob: fields[17] || "",
-            insuredAddress: fields[18] || "",
-            insuredPhoneNumber: fields[19] || "",
-          };
-          break;
-        case "OBX":
-          const setId = fields[0] || "0";
-          jsonOutput[`OBX${setId === '0' ? '' : setId}`] = {
-            setId: fields[0] || "",
-            valueType: fields[1] || "",
-            observationIdentifier: fields[2] || "",
-            observationValue: fields[4] || "",
-            observationStatus: fields[10] || "",
-          };
-          break;
-        default:
-          jsonOutput[segmentType] = fields.reduce((acc: { [key: string]: string }, field, index) => {
-            acc[`field${index}`] = field;
-            return acc;
-          }, {});
-      }
+      // Apply field mappings based on segment type
+      const mappings = segmentFieldMappings[segmentType] || {};
+      fields.forEach((field, index) => {
+        const fieldKey = mappings[`field${index + 1}`] || `field${index + 1}`;
+        segmentData[fieldKey] = field || "";
+      });
+
+      jsonOutput[segmentKey] = segmentData;
     }
 
     return jsonOutput;
@@ -317,14 +302,45 @@ const CMSConverter: React.FC = () => {
     try {
       const hl7 = await convertToHL7(file);
       setHl7Content(hl7);
-      const json = convertHL7ToJson(hl7);
-      setJsonContent(json);
+      setJsonContent(null);
     } catch (error) {
       setErrorMessage(`Failed to convert JSON to HL7: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleConvertFromHl7 = async () => {
+    let hl7Text = hl7TextInput;
+
+    if (hl7File && !hl7Text) {
+      try {
+        hl7Text = await hl7File.text();
+      } catch (error) {
+        setErrorMessage(`Failed to read HL7 file: ${error instanceof Error ? error.message : "Unknown error"}`);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    if (!hl7Text.trim()) {
+      setErrorMessage("No HL7 content provided. Please paste HL7 text or upload an HL7 file.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const json = convertHL7ToJson(hl7Text);
+      setJsonContent(json);
+      setHl7Content("");
+    } catch (error) {
+      setErrorMessage(`Failed to convert HL7 to JSON: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
 
   const handleDownloadHL7 = () => {
     try {
@@ -337,6 +353,33 @@ const CMSConverter: React.FC = () => {
       setErrorMessage("Failed to download HL7 file.");
     }
   };
+
+
+
+  // const handleDownloadJson = () => {
+  //   try {
+  //     if (jsonContent) {
+  //       const jsonBlob = new Blob([JSON.stringify(jsonContent, null, 2)], { type: "application/json" });
+  //       saveAs(jsonBlob, "converted_from_hl7.json");
+  //     }
+  //   } catch (e) {
+  //     console.error("Failed to download JSON:", e);
+  //     setErrorMessage("Failed to download JSON file.");
+  //   }
+  // };
+
+
+  // const handleDownloadJson = () => {
+  //   try {
+  //     if (jsonContent) {
+  //       const jsonBlob = new Blob([JSON.stringify(jsonContent, null, 2)], { type: "application/json" });
+  //       saveAs(jsonBlob, "converted_from_hl7.json");
+  //     }
+  //   } catch (e) {
+  //     console.error("Failed to download JSON:", e);
+  //     setErrorMessage("Failed to download JSON file.");
+  //   }
+  // };
 
   const handleDownloadJson = () => {
     try {
@@ -352,19 +395,25 @@ const CMSConverter: React.FC = () => {
 
   return (
     <div style={{
-      maxWidth: "600px",
+      maxWidth: "800px",
       margin: "2.5rem auto",
       padding: "1.5rem",
       border: "1px solid #e5e7eb",
       borderRadius: "0.75em",
       boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
     }}>
-      <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "1rem" }}>
-        JSON to HL7 Converter
+      <h2 style={{ fontSize: "1.5rem", fontWeight: "600", marginBottom: "1rem" }}>
+        CMS-1500 to HL7 and JSON Converter
       </h2>
 
+
+
+      {/* JSON Input Section */}
+      {/* <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "0.75rem" }}>
+        Convert CMS-1500 JSON to HL7
+      </h3>
       <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.75rem" }}>
-        Drag and drop a JSON file here or click to select one. Only JSON files are supported.
+        Drag and drop a JSON file with CMS-1500 data here or click to select one. Only JSON files are supported.
       </p>
       <div {...getJsonRootProps()} style={{
         border: "2px dashed #ccc",
@@ -382,14 +431,8 @@ const CMSConverter: React.FC = () => {
             : "Drag a JSON file here or click to select"}
         </p>
       </div>
-
-      {error && <p style={{ color: "#ff0000", marginBottom: "0.75rem" }}>{error}</p>}
-
       <button
-        onClick={() => {
-          console.log("Convert button clicked - jsonFile:", jsonFile ? jsonFile.name : "");
-          if (jsonFile) handleConvertFromJson(jsonFile);
-        }}
+        onClick={() => jsonFile && handleConvertFromJson(jsonFile)}
         style={{
           backgroundColor: "#2563eb",
           color: "white",
@@ -397,13 +440,151 @@ const CMSConverter: React.FC = () => {
           borderRadius: "0.25rem",
           cursor: isLoading || !jsonFile ? "not-allowed" : "pointer",
           opacity: isLoading || !jsonFile ? 0.5 : 1,
-          marginBottom: "1rem",
+          marginBottom: "1.5rem",
         }}
         disabled={isLoading || !jsonFile}
       >
-        {isLoading ? "Converting..." : "Convert"}
+        {isLoading ? "Converting..." : "Convert JSON to HL7"}
+      </button> */}
+      
+
+
+{/* JSON Input Section */}
+
+      {/* JSON Input Section */}
+      <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "0.75rem" }}>
+        Convert CMS-1500 JSON to HL7
+      </h3>
+      <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+        Drag and drop a JSON file with CMS-1500 data here or click to select one. Only JSON files are supported.
+      </p>
+      <div {...getJsonRootProps()} style={{
+        border: "2px dashed #ccc",
+        padding: "1.25rem",
+        backgroundColor: isJsonDragActive ? "#e6f3ff" : isJsonDragReject ? "#ffe6e6" : "#f9fafb",
+        marginBottom: "1rem",
+        textAlign: "center",
+      }}>
+        <input {...getJsonInputProps()} />
+        <p style={{ color: "#6b7280" }}>
+          {isJsonDragActive
+            ? "Drop the JSON file here."
+            : isJsonDragReject
+            ? "Invalid file type. Please drop a JSON file."
+            : "Drag a JSON file here or click to select"}
+        </p>
+
+      </div>
+      <button
+        onClick={() => jsonFile && handleConvertFromJson(jsonFile)}
+        style={{
+          backgroundColor: "#2563eb",
+          color: "white",
+          padding: "0.5rem 1rem",
+          borderRadius: "0.25rem",
+          cursor: isLoading || !jsonFile ? "not-allowed" : "pointer",
+          opacity: isLoading || !jsonFile ? 0.5 : 1,
+          marginBottom: "1.5rem",
+        }}
+        disabled={isLoading || !jsonFile}
+      >
+        {isLoading ? "Converting..." : "Convert JSON to HL7"}
       </button>
 
+      {/* HL7 Input Section */}
+      <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "0.75rem" }}>
+        Convert HL7 to JSON
+      </h3>
+      <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+        Paste HL7 text below or upload an HL7 file (.hl7 or .txt).
+      </p>
+      <textarea
+        value={hl7TextInput}
+        onChange={(e) => setHl7TextInput(e.target.value)}
+        placeholder="Paste HL7 text here..."
+        style={{
+          width: "100%",
+          height: "150px",
+          padding: "0.75rem",
+          border: "1px solid #e5e7eb",
+          borderRadius: "0.25rem",
+          marginBottom: "1rem",
+          fontSize: "0.875rem",
+        }}
+      />
+    
+      <div {...getHl7RootProps()} style={{
+        border: "2px dashed #ccc",
+        padding: "1.25rem",
+        backgroundColor: isHl7DragActive ? "#e6f3ff" : isHl7DragReject ? "#ffe6e6" : "#f9fafb",
+        marginBottom: "1rem",
+        textAlign: "center",
+      }}>
+        <input {...getHl7InputProps()} />
+        <p style={{ color: "#6b7280" }}>
+          {isHl7DragActive
+            ? "Drop the HL7 file here."
+            : isHl7DragReject
+            ? "Invalid file type. Please drop a .hl7 or .txt file."
+            : "Drag an HL7 file here or click to select"}
+        </p>
+      </div>
+      <button
+      
+        onClick={handleConvertFromHl7}
+        style={{
+          backgroundColor: "#2563eb",
+          color: "white",
+          padding: "0.5rem 1rem",
+          borderRadius: "0.25rem",
+          cursor: isLoading ? "not-allowed" : "pointer",
+          opacity: isLoading ? 0.5 : 1,
+          marginBottom: "1.5rem",
+        }}
+        disabled={isLoading}
+      >
+        {isLoading ? "Converting..." : "Convert HL7 to JSON"}
+      </button>
+
+      {error && <p style={{ color: "#ff0000", marginBottom: "0.75rem" }}>{error}</p>}
+
+
+
+
+            {/* HL7 Output */}
+      {/* {hl7Content && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "1rem" }}>
+            HL7 Output
+          </h3>
+          <pre style={{
+            padding: "1rem",
+            backgroundColor: "#f3f4f6",
+            border: "1px solid #e5e7eb",
+            borderRadius: "0.25rem",
+            fontSize: "0.875rem",
+            overflowX: "auto",
+          }}>
+            {hl7Content}
+          </pre>
+          <button
+            onClick={handleDownloadHL7}
+            style={{
+              backgroundColor: "#10b981",
+              color: "white",
+              padding: "0.5rem 1rem",
+              borderRadius: "0.25rem",
+              cursor: "pointer",
+              marginTop: "0.5rem",
+            }}
+          >
+            Download HL7
+          </button>
+        </div>
+      )} */}
+
+
+      {/* HL7 Output */}
       {hl7Content && (
         <div style={{ marginTop: "1.5rem" }}>
           <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "1rem" }}>
@@ -435,6 +616,7 @@ const CMSConverter: React.FC = () => {
         </div>
       )}
 
+      {/* JSON Output */}
       {jsonContent && (
         <div style={{ marginTop: "1.25rem" }}>
           <h3 style={{ fontSize: "1.125rem", fontWeight: "500", marginBottom: "1rem" }}>
